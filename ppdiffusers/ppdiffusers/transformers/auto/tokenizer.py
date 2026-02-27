@@ -18,9 +18,9 @@ import json
 import os
 from collections import OrderedDict, defaultdict
 
-from paddlenlp.transformers import PretrainedTokenizer
-from paddlenlp.transformers.auto.tokenizer import AutoTokenizer as PPNLPAutoTokenizer
-from paddlenlp.utils.import_utils import import_module
+from paddleformers.transformers import PretrainedTokenizer
+from paddleformers.transformers.auto.tokenizer import AutoTokenizer as PPFORMERSAutoTokenizer
+from paddleformers.utils.import_utils import import_module
 
 from ...utils import logging
 
@@ -30,19 +30,19 @@ __all__ = [
     "AutoTokenizer",
 ]
 
-from paddlenlp.transformers.auto.tokenizer import TOKENIZER_MAPPING_NAMES
+from paddleformers.transformers.auto.tokenizer import TOKENIZER_MAPPING_NAMES
 
-NEW_TOKENIZER_MAPPING_NAMES = OrderedDict(
-    [
-        ("CLIPTokenizer", "clip"),
-        ("T5Tokenizer", "t5"),
-        ("BertTokenizer", "bert"),
-        ("XLMRobertaTokenizer", "xlm_roberta"),
-        ("GPT2Tokenizer", "gpt2"),
-        ("RobertaTokenizer", "roberta"),
-    ]
-)
-TOKENIZER_MAPPING_NAMES.update(NEW_TOKENIZER_MAPPING_NAMES)
+# NEW_TOKENIZER_MAPPING_NAMES = OrderedDict(
+#     [
+#         ("CLIPTokenizer", "clip"),
+#         ("T5Tokenizer", "t5"),
+#         ("BertTokenizer", "bert"),
+#         ("XLMRobertaTokenizer", "xlm_roberta"),
+#         ("GPT2Tokenizer", "gpt2"),
+#         ("RobertaTokenizer", "roberta"),
+#     ]
+# )
+# TOKENIZER_MAPPING_NAMES.update(NEW_TOKENIZER_MAPPING_NAMES)
 
 
 def get_configurations():
@@ -69,7 +69,7 @@ def get_configurations():
         if not os.path.exists(tokenizer_path):
             continue
 
-        for package in ["paddlenlp", "ppdiffusers"]:
+        for package in ["paddleformers", "ppdiffusers"]:
             tokenizezr_module = import_module(f"{package}.transformers.{model_name}.tokenizer")
             for key in dir(tokenizezr_module):
                 value = getattr(tokenizezr_module, key)
@@ -79,7 +79,7 @@ def get_configurations():
     return mappings
 
 
-class AutoTokenizer(PPNLPAutoTokenizer):
+class AutoTokenizer(PPFORMERSAutoTokenizer):
     MAPPING_NAMES = get_configurations()
     _tokenizer_mapping = MAPPING_NAMES
     _name_mapping = TOKENIZER_MAPPING_NAMES
@@ -95,12 +95,12 @@ class AutoTokenizer(PPNLPAutoTokenizer):
 
         if init_class:
             class_name = cls._name_mapping[init_class]
-            for package in ["ppdiffusers", "paddlenlp"]:
+            for package in ["ppdiffusers", "paddleformers"]:
                 import_class = import_module(f"{package}.transformers.{class_name}.tokenizer")
                 if import_class is not None:
                     break
             if import_class is None:
-                raise ImportError(f"Cannot find the {class_name} from paddlenlp or ppdiffusers.")
+                raise ImportError(f"Cannot find the {class_name} from paddleformers or ppdiffusers.")
             tokenizer_class = getattr(import_class, init_class)
             if use_fast:
                 fast_tokenizer_class = cls._get_fast_tokenizer_class(init_class, class_name)
@@ -114,17 +114,17 @@ class AutoTokenizer(PPNLPAutoTokenizer):
                 if pattern in pretrained_model_name_or_path.lower():
                     init_class = key
                     class_name = cls._name_mapping[init_class]
-                    for package in ["ppdiffusers", "paddlenlp"]:
+                    for package in ["ppdiffusers", "paddleformers"]:
                         import_class = import_module(f"{package}.transformers.{class_name}.tokenizer")
                         if import_class is not None:
                             break
                     if import_class is None:
-                        raise ImportError(f"Cannot find the {class_name} from paddlenlp or ppdiffusers.")
+                        raise ImportError(f"Cannot find the {class_name} from paddleformers or ppdiffusers.")
                     tokenizer_class = getattr(import_class, init_class)
                     if use_fast:
                         fast_tokenizer_class = cls._get_fast_tokenizer_class(init_class, class_name)
                         tokenizer_class = fast_tokenizer_class if fast_tokenizer_class else tokenizer_class
                     break
             if tokenizer_class is None:
-                raise ImportError("Cannot find the tokenizer from paddlenlp or ppdiffusers.")
+                raise ImportError("Cannot find the tokenizer from paddleformers or ppdiffusers.")
             return tokenizer_class

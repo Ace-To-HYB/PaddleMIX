@@ -58,6 +58,7 @@ from ..utils import (
 from ..version import VERSION as __version__
 from .lora_conversion_utils import (
     _convert_kohya_lora_to_diffusers,
+    _convert_non_diffusers_qwen_lora_to_diffusers,
     _maybe_map_sgm_blocks_to_diffusers,
 )
 
@@ -2800,3 +2801,71 @@ class Mochi1LoraLoaderMixin(LoraLoaderMixin):
 
     def unfuse_lora(self, components: List[str] = ["transformer"], **kwargs):
         super().unfuse_lora(components=components, **kwargs)
+
+
+class QwenImageLoraLoaderMixin(LoraBaseMixin):
+    r"""
+    Load LoRA layers into [`QwenImageTransformer2DModel`]. Specific to [`QwenImagePipeline`].
+    """
+
+    _lora_loadable_modules = ["transformer"]
+    transformer_name = TRANSFORMER_NAME
+
+    @classmethod
+    # @validate_hf_hub_args
+    def lora_state_dict(
+        cls,
+        pretrained_model_name_or_path_or_dict: str | dict[str, torch.Tensor],
+        **kwargs,
+    ):
+        r"""
+        See [`~loaders.StableDiffusionLoraLoaderMixin.lora_state_dict`] for more details.
+        """
+        # Load the main state dict first which has the LoRA layers for either of
+        # transformer and text encoder or both.
+        cache_dir = kwargs.pop("cache_dir", None)
+        force_download = kwargs.pop("force_download", False)
+        proxies = kwargs.pop("proxies", None)
+        local_files_only = kwargs.pop("local_files_only", None)
+        token = kwargs.pop("token", None)
+        revision = kwargs.pop("revision", None)
+        subfolder = kwargs.pop("subfolder", None)
+        weight_name = kwargs.pop("weight_name", None)
+        use_safetensors = kwargs.pop("use_safetensors", None)
+
+        allow_pickle = False
+        if use_safetensors is None:
+            use_safetensors = True
+            allow_pickle = True
+
+        user_agent = {"file_type": "attn_procs_weights", "framework": "pytpaddleorch"}
+
+        state_dict = super().lora_state_dict(
+            pretrained_model_name_or_path_or_dict=pretrained_model_name_or_path_or_dict,
+            weight_name=weight_name,
+            use_safetensors=use_safetensors,
+            local_files_only=local_files_only,
+            cache_dir=cache_dir,
+            force_download=force_download,
+            proxies=proxies,
+            token=token,
+            revision=revision,
+            subfolder=subfolder,
+            user_agent=user_agent,
+            allow_pickle=allow_pickle,
+        )
+
+        is_dora_scale_present = any("dora_scale" in k for k in state_dict)
+        if is_dora_scale_present:
+            warn_msg = "It seems like you are using a DoRA checkpoint that is not compatible in Diffusers at the moment. So, we are going to filter out the keys associated to 'dora_scale` from the state dict. If you think this is a mistake please open an issue https://github.com/huggingface/diffusers/issues/new."
+            logger.warning(warn_msg)
+            state_dict = {k: v for k, v in state_dict.items() if "dora_scale" not in k}
+
+        has_alphas_in_sd = any(k.endswith(".alpha") for k in state_dict)
+        has_lora_unet = any(k.startswith("lora_unet_") for k in state_dict)
+        has_diffusion_model = any(k.startswith("diffusion_model.") for k in state_dict)
+        has_default = any("default." in k for k in state_dict)
+        if has_alphas_in_sd or has_lora_unet or has_diffusion_model or has_default:
+            state_dict = _convert_non_diffusers_qwen_lora_to_diffusers(state_dict)
+
+        return state_dict

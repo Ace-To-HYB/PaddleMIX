@@ -25,6 +25,7 @@ if is_paddle_available():
     _import_structure["autoencoder_kl_cogvideox"] = ["AutoencoderKLCogVideoX"]
     _import_structure["autoencoder_kl_mochi"] = ["AutoencoderKLMochi"]
     _import_structure["autoencoder_kl_hunyuan_video"] = ["AutoencoderKLHunyuanVideo"]
+    _import_structure["autoencoder_kl_qwenimage"] = ["AutoencoderKLQwenImage"]
     _import_structure["autoencoder_kl_wan"] = ["AutoencoderKLWan"]
     _import_structure["autoencoder_kl_temporal_decoder"] = ["AutoencoderKLTemporalDecoder"]
     _import_structure["autoencoder_tiny"] = ["AutoencoderTiny"]
@@ -81,6 +82,7 @@ if TYPE_CHECKING or PPDIFFUSERS_SLOW_IMPORT:
         from .autoencoder_kl_cogvideox import AutoencoderKLCogVideoX
         from .autoencoder_kl_hunyuan_video import AutoencoderKLHunyuanVideo
         from .autoencoder_kl_mochi import AutoencoderKLMochi
+        from .autoencoder_kl_qwenimage import AutoencoderKLQwenImage
         from .autoencoder_kl_temporal_decoder import AutoencoderKLTemporalDecoder
         from .autoencoder_kl_wan import AutoencoderKLWan
         from .autoencoder_tiny import AutoencoderTiny

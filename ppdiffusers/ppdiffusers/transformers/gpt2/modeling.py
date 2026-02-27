@@ -22,14 +22,14 @@ from typing import Optional, Tuple, Union
 import paddle
 from paddle import nn
 from paddle.nn import CrossEntropyLoss
-from paddlenlp.transformers.activations import ACT2FN
-from paddlenlp.transformers.model_outputs import (
+from paddleformers.transformers.activations import ACT2FN
+from paddleformers.transformers.model_outputs import (
     BaseModelOutputWithPastAndCrossAttentions,
     CausalLMOutputWithCrossAttentions,
     ModelOutput,
 )
-from paddlenlp.utils.converter import StateDictNameMapping
-from paddlenlp.utils.log import logger as ppnlp_logger
+from paddleformers.utils.converter import StateDictNameMapping
+from paddleformers.utils.log import logger as ppformers_logger
 
 from ...utils import logging
 from ..model_utils import PretrainedModel
@@ -422,7 +422,7 @@ class GPT2PretrainedModel(PretrainedModel):
             cls._deprecated_dict.get("key", "NONE") in all_key for all_key in state_dict.keys()
         )
         if from_deprecated_state_dict:
-            ppnlp_logger.warning(
+            ppformers_logger.warning(
                 "Loading from deprecated state_dict, please load new state_dict via setting `use_safetensors=True`."
             )
             for name in list(state_dict.keys()):

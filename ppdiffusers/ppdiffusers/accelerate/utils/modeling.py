@@ -24,7 +24,8 @@ from .dataclasses import AutocastKwargs, DistributedType
 WEIGHTS_INDEX_NAME = "model_state.pdparams.index.json"
 
 
-from paddlenlp.transformers.model_utils import shard_checkpoint  # noqa: F401
+
+from paddleformers.transformers.model_utils import shard_checkpoint  # noqa: F401
 
 
 def named_module_tensors(

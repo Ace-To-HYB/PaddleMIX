@@ -21,11 +21,11 @@ from typing import Callable, Optional, Tuple, Union
 import paddle
 import paddle.nn as nn
 from paddle.distributed.fleet.utils import recompute
-from paddlenlp.transformers.configuration_utils import (
-    PretrainedConfig as PPNLPPretrainedConfig,
+from paddleformers.transformers.configuration_utils import (
+    PretrainedConfig as PPFORMERSPretrainedConfig,
 )
-from paddlenlp.transformers.model_utils import PretrainedModel as PPNLPPretrainedModel
-from paddlenlp.utils.log import logger as ppnlp_logger
+from paddleformers.transformers.model_utils import PretrainedModel as PPFORMERSPretrainedModel
+from paddleformers.utils.log import logger as ppformers_logger
 
 from ppdiffusers.utils import (
     is_safetensors_available,
@@ -212,7 +212,7 @@ class ModuleUtilsMixin:
         return head_mask
 
 
-class PretrainedModel(PPNLPPretrainedModel, ModuleUtilsMixin, PeftAdapterMixin):
+class PretrainedModel(PPFORMERSPretrainedModel, ModuleUtilsMixin, PeftAdapterMixin):
     supports_gradient_checkpointing = False
 
     def _set_gradient_checkpointing(self, enable: bool = True, gradient_checkpointing_func: Callable = recompute):
@@ -279,7 +279,7 @@ class PretrainedModel(PPNLPPretrainedModel, ModuleUtilsMixin, PeftAdapterMixin):
             cls._deprecated_dict.get("key", "NONE") in all_key for all_key in state_dict.keys()
         )
         if from_deprecated_state_dict:
-            ppnlp_logger.warning(
+            ppformers_logger.warning(
                 "Loading from deprecated state_dict, please load new state_dict via setting `use_safetensors=True`."
             )
             for name in list(state_dict.keys()):
@@ -339,7 +339,7 @@ class PretrainedModel(PPNLPPretrainedModel, ModuleUtilsMixin, PeftAdapterMixin):
             self._set_gradient_checkpointing(enable=True, gradient_checkpointing_func=gradient_checkpointing_func)
         else:
             self.apply(partial(self._set_gradient_checkpointing, value=True))
-            ppnlp_logger.warn(
+            ppformers_logger.warn(
                 "You are using an old version of the checkpointing format that is deprecated (We will also silently ignore `gradient_checkpointing_kwargs` in case you passed it)."
                 "Please update to the new format on your modeling file. To use the new format, you need to completely remove the definition of the method `_set_gradient_checkpointing` in your model."
             )
@@ -358,7 +358,7 @@ class PretrainedModel(PPNLPPretrainedModel, ModuleUtilsMixin, PeftAdapterMixin):
             if not _is_using_old_format:
                 self._set_gradient_checkpointing(enable=False)
             else:
-                ppnlp_logger.warn(
+                ppformers_logger.warn(
                     "You are using an old version of the checkpointing format that is deprecated (We will also silently ignore `gradient_checkpointing_kwargs` in case you passed it)."
                     "Please update to the new format on your modeling file. To use the new format, you need to completely remove the definition of the method `_set_gradient_checkpointing` in your model."
                 )
@@ -475,5 +475,5 @@ class PretrainedModel(PPNLPPretrainedModel, ModuleUtilsMixin, PeftAdapterMixin):
         return attention_mask
 
 
-class PretrainedConfig(PPNLPPretrainedConfig):
+class PretrainedConfig(PPFORMERSPretrainedConfig):
     pass

@@ -27,7 +27,7 @@ from urllib.parse import quote
 
 import requests
 from aistudio_sdk.hub import create_repo as aistudio_create_repo
-from aistudio_sdk.hub import download as aistudio_base_download
+from aistudio_sdk.file_download import model_file_download as aistudio_download_files
 from aistudio_sdk.hub import upload as aistudio_upload
 from filelock import FileLock
 from huggingface_hub import hf_hub_download, try_to_load_from_cache
@@ -414,7 +414,7 @@ def aistudio_download(
     # currently do not support cache_dir
     # if cache_dir is not None:
     #     download_kwargs["cache_dir"] = cache_dir
-    res = aistudio_base_download(
+    res = aistudio_download_files(
         repo_id=repo_id,
         filename=filename,
         **download_kwargs,

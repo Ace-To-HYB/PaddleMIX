@@ -14,7 +14,7 @@
 
 from typing import TYPE_CHECKING
 
-from .patches import *
+# from .patches import *
 from .utils import (
     PPDIFFUSERS_SLOW_IMPORT,
     OptionalDependencyNotAvailable,
@@ -124,6 +124,7 @@ else:
             "AutoencoderKL",
             "AutoencoderKLCogVideoX",
             "AutoencoderKLHunyuanVideo",
+            "AutoencoderKLQwenImage",
             "AutoencoderKLWan",
             "AutoencoderKLTemporalDecoder",
             "AutoencoderTiny",
@@ -547,6 +548,8 @@ if TYPE_CHECKING or PPDIFFUSERS_SLOW_IMPORT:
             AutoencoderKLCogVideoX,
             AutoencoderKLHunyuanVideo,
             AutoencoderKLMochi,
+            AutoencoderKLQwenImage,
+            AutoencoderKLWan,
             AutoencoderKLTemporalDecoder,
             AutoencoderTiny,
             CogVideoXTransformer3DModel,

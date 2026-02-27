@@ -18,8 +18,8 @@ import json
 import os
 from collections import OrderedDict, defaultdict
 
-from paddlenlp.transformers.auto.modeling import AutoModel as PPNLPAutoModel
-from paddlenlp.utils.import_utils import import_module
+from paddleformers.transformers.auto.modeling import AutoModel as PPFORMERSAutoModel
+from paddleformers.utils.import_utils import import_module
 
 from ..model_utils import PretrainedModel
 
@@ -27,22 +27,22 @@ __all__ = [
     "AutoModel",
 ]
 
-from paddlenlp.transformers.auto.modeling import MAPPING_NAMES
+from paddleformers.transformers.auto.modeling import MAPPING_NAMES
 
-NEW_MAPPING_NAMES = OrderedDict(
-    [
-        ("CLIPText", "clip"),
-        ("CLIPVision", "clip"),
-        ("CLIP", "clip"),
-        ("T5Encoder", "t5"),
-        ("T5", "t5"),
-        ("Bert", "bert"),
-        ("Roberta", "roberta"),
-        ("XLMRoberta", "xlm_roberta"),
-        ("GPT2", "gpt2"),
-    ]
-)
-MAPPING_NAMES.update(NEW_MAPPING_NAMES)
+# NEW_MAPPING_NAMES = OrderedDict(
+#     [
+#         ("CLIPText", "clip"),
+#         ("CLIPVision", "clip"),
+#         ("CLIP", "clip"),
+#         ("T5Encoder", "t5"),
+#         ("T5", "t5"),
+#         ("Bert", "bert"),
+#         ("Roberta", "roberta"),
+#         ("XLMRoberta", "xlm_roberta"),
+#         ("GPT2", "gpt2"),
+#     ]
+# )
+# MAPPING_NAMES.update(NEW_MAPPING_NAMES)
 
 
 def get_configurations():
@@ -69,7 +69,7 @@ def get_configurations():
         if not os.path.exists(modeling_path):
             continue
 
-        for package in ["paddlenlp", "ppdiffusers"]:
+        for package in ["paddleformers", "ppdiffusers"]:
             modeling_module = import_module(f"{package}.transformers.{model_name}.modeling")
             for key in dir(modeling_module):
                 value = getattr(modeling_module, key)
@@ -79,7 +79,7 @@ def get_configurations():
     return mappings
 
 
-class AutoModel(PPNLPAutoModel):
+class AutoModel(PPFORMERSAutoModel):
     """
     AutoClass can help you automatically retrieve the relevant model given the provided
     pretrained weights/vocabulary.
@@ -112,11 +112,11 @@ class AutoModel(PPNLPAutoModel):
             raise AttributeError(
                 f"Unable to parse 'architectures' or 'init_class' from {config_file_path}. Also unable to infer model class from '{pretrained_model_name_or_path}'"
             )
-        for package in ["ppdiffusers", "paddlenlp"]:
+        for package in ["ppdiffusers", "paddleformers"]:
             import_class = import_module(f"{package}.transformers.{class_name}.modeling")
             if import_class is not None:
                 break
         if import_class is None:
-            raise ImportError(f"Cannot find the {class_name} from paddlenlp or ppdiffusers.")
+            raise ImportError(f"Cannot find the {class_name} from paddleformers or ppdiffusers.")
         model_class = getattr(import_class, model_name)
         return model_class

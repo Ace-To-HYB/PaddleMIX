@@ -19,9 +19,9 @@ import json
 import os
 from collections import OrderedDict, defaultdict
 
-from paddlenlp.transformers.auto.processing import AutoProcessor as PPNLPAutoProcessor
-from paddlenlp.transformers.processing_utils import ProcessorMixin
-from paddlenlp.utils.import_utils import import_module
+from paddleformers.transformers.auto.processing import AutoProcessor as PPFORMERSAutoProcessor
+from paddleformers.transformers.processing_utils import ProcessorMixin
+from paddleformers.utils.import_utils import import_module
 
 from ...utils import logging
 
@@ -30,14 +30,14 @@ logger = logging.get_logger(__name__)
 __all__ = [
     "AutoProcessor",
 ]
-from paddlenlp.transformers.auto.processing import PROCESSOR_MAPPING_NAMES
+from paddleformers.transformers.auto.processing import PROCESSOR_MAPPING_NAMES
 
-NEW_PROCESSOR_MAPPING_NAMES = OrderedDict(
-    [
-        ("CLIPProcessor", "clip"),
-    ]
-)
-PROCESSOR_MAPPING_NAMES.update(NEW_PROCESSOR_MAPPING_NAMES)
+# NEW_PROCESSOR_MAPPING_NAMES = OrderedDict(
+#     [
+#         ("CLIPProcessor", "clip"),
+#     ]
+# )
+# PROCESSOR_MAPPING_NAMES.update(NEW_PROCESSOR_MAPPING_NAMES)
 
 
 def get_configurations():
@@ -64,7 +64,7 @@ def get_configurations():
         if not os.path.exists(processing_path):
             continue
 
-        for package in ["paddlenlp", "ppdiffusers"]:
+        for package in ["paddleformers", "ppdiffusers"]:
             processing_module = import_module(f"{package}.transformers.{model_name}.processing")
             for key in dir(processing_module):
                 value = getattr(processing_module, key)
@@ -74,7 +74,7 @@ def get_configurations():
     return mappings
 
 
-class AutoProcessor(PPNLPAutoProcessor):
+class AutoProcessor(PPFORMERSAutoProcessor):
     MAPPING_NAMES = get_configurations()
     _processor_mapping = MAPPING_NAMES
     _name_mapping = PROCESSOR_MAPPING_NAMES
@@ -102,12 +102,12 @@ class AutoProcessor(PPNLPAutoProcessor):
         if init_class:
             try:
                 class_name = cls._name_mapping[init_class]
-                for package in ["ppdiffusers", "paddlenlp"]:
+                for package in ["ppdiffusers", "paddleformers"]:
                     import_class = import_module(f"{package}.transformers.{class_name}.processing")
                     if import_class is not None:
                         break
                 if import_class is None:
-                    raise ImportError(f"Cannot find the {class_name} from paddlenlp or ppdiffusers.")
+                    raise ImportError(f"Cannot find the {class_name} from paddleformers or ppdiffusers.")
                 processor_class = getattr(import_class, init_class)
                 return processor_class
             except Exception:
@@ -120,14 +120,14 @@ class AutoProcessor(PPNLPAutoProcessor):
                 if pattern in pretrained_model_name_or_path.lower():
                     init_class = key
                     class_name = cls._name_mapping[init_class]
-                    for package in ["ppdiffusers", "paddlenlp"]:
+                    for package in ["ppdiffusers", "paddleformers"]:
                         import_class = import_module(f"{package}.transformers.{class_name}.processing")
                         if import_class is not None:
                             break
                     if import_class is None:
-                        raise ImportError(f"Cannot find the {class_name} from paddlenlp or ppdiffusers.")
+                        raise ImportError(f"Cannot find the {class_name} from paddleformers or ppdiffusers.")
                     processor_class = getattr(import_class, init_class)
                     break
         if processor_class is None:
-            raise ImportError("Cannot find the processing from paddlenlp or ppdiffusers.")
+            raise ImportError("Cannot find the processing from paddleformers or ppdiffusers.")
         return processor_class

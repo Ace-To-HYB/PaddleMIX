@@ -14,7 +14,7 @@
 # limitations under the License.
 import os
 
-from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE, hf_cache_home
+from huggingface_hub.constants import HUGGINGFACE_HUB_CACHE, HF_HOME
 
 
 def str2bool(v):
@@ -83,7 +83,7 @@ DIFFUSERS_CACHE = diffusers_default_cache_path
 DIFFUSERS_DYNAMIC_MODULE_NAME = "diffusers_modules"
 PPDIFFUSERS_DYNAMIC_MODULE_NAME = "ppdiffusers_modules"
 # make sure we have abs path
-HF_MODULES_CACHE = os.path.abspath(os.getenv("HF_MODULES_CACHE", os.path.join(hf_cache_home, "modules")))
+HF_MODULES_CACHE = os.path.abspath(os.getenv("HF_MODULES_CACHE", os.path.join(HF_HOME, "modules")))
 PPDIFFUSERS_MODULES_CACHE = os.path.abspath(
     os.getenv("PPDIFFUSERS_MODULES_CACHE", os.path.join(ppnlp_cache_home, "modules"))
 )

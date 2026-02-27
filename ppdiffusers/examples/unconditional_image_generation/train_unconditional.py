@@ -25,7 +25,7 @@ import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
 from datasets import load_dataset
-from huggingface_hub import HfFolder, create_repo, whoami
+from huggingface_hub import create_repo, get_token, whoami
 from paddle.vision import transforms
 from paddlenlp.trainer import set_seed
 from paddlenlp.utils.log import logger
@@ -339,7 +339,7 @@ def parse_args():
 
 def get_full_repo_name(model_id: str, organization: Optional[str] = None, token: Optional[str] = None):
     if token is None:
-        token = HfFolder.get_token()
+        token = get_token()
     if organization is None:
         username = whoami(token)["name"]
         return f"{username}/{model_id}"

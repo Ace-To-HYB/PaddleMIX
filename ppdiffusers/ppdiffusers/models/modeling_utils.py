@@ -83,10 +83,10 @@ if is_paddle_available():
 
 if is_paddlenlp_available():
     try:
-        from paddlenlp.transformers.model_utils import no_init_weights
+        from paddleformers.transformers.model_utils import no_init_weights
     except ImportError:
         from ..utils.paddle_utils import no_init_weights
-    from paddlenlp.transformers.model_utils import shard_checkpoint
+    from paddleformers.transformers.model_utils import shard_checkpoint
 
 
 def faster_set_state_dict(model, state_dict):
@@ -190,9 +190,9 @@ def load_state_dict(
                     weight = f.get_tensor(key)
 
                 if map_location == "cpu":
-                    state_dict[key] = paddle.Tensor(weight, zero_copy=True, place=paddle.CPUPlace())
+                    state_dict[key] = paddle.Tensor.__call__(weight, zero_copy=True, place=paddle.CPUPlace())
                 else:
-                    state_dict[key] = paddle.Tensor(weight, zero_copy=True)
+                    state_dict[key] = paddle.Tensor.__call__(weight, zero_copy=True)
 
     else:
         if any(checkpoint_file.endswith(suffix) for suffix in [".pt", ".pth", ".bin", ".ckpt"]):
@@ -1014,7 +1014,7 @@ class ModelMixin(nn.Layer):
         # (westfish) 2024/04/01:
         #  Tensor parallel is only supported for models that inherit from `ConversionMixin`
         if tensor_parallel_degree > 1:
-            from paddlenlp.transformers.conversion_utils import ConversionMixin
+            from paddleformers.transformers.conversion_utils import ConversionMixin
 
             if not issubclass(cls, ConversionMixin):
                 raise NotImplementedError(

@@ -18,8 +18,8 @@ import json
 import os
 from collections import defaultdict
 
-from paddlenlp.transformers.auto.configuration import AutoConfig as PPNLPAutoConfig
-from paddlenlp.utils.import_utils import import_module
+from paddleformers.transformers.auto.configuration import AutoConfig as PPFORMERSAutoConfig
+from paddleformers.utils.import_utils import import_module
 
 from ..model_utils import PretrainedConfig, PretrainedModel
 
@@ -48,7 +48,7 @@ def get_configurations():
         if not os.path.exists(configuration_path):
             continue
 
-        for package in ["paddlenlp", "ppdiffusers"]:
+        for package in ["paddleformers", "ppdiffusers"]:
             configuration_module = import_module(f"{package}.transformers.{model_name}.configuration")
             for key in dir(configuration_module):
                 value = getattr(configuration_module, key)
@@ -57,7 +57,7 @@ def get_configurations():
     return mappings
 
 
-class AutoConfig(PPNLPAutoConfig):
+class AutoConfig(PPFORMERSAutoConfig):
     MAPPING_NAMES = get_configurations()
 
     @classmethod
@@ -74,12 +74,12 @@ class AutoConfig(PPNLPAutoConfig):
                 return cls
 
         model_name = architectures[0]
-        for package in ["ppdiffusers", "paddlenlp"]:
+        for package in ["ppdiffusers", "paddleformers"]:
             model_class = import_module(f"{package}.transformers.{model_name}")
             if model_class is not None:
                 break
         if model_class is None:
-            raise ImportError(f"Cannot find the {model_class} from paddlenlp or ppdiffusers.")
+            raise ImportError(f"Cannot find the {model_class} from paddleformers or ppdiffusers.")
         assert inspect.isclass(model_class) and issubclass(
             model_class, PretrainedModel
         ), f"<{model_class}> should be a PretarinedModel class, but <{type(model_class)}>"

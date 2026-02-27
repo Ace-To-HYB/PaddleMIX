@@ -26,7 +26,7 @@ import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
 from datasets import DatasetDict, load_dataset
-from huggingface_hub import HfFolder, Repository, create_repo, whoami
+from huggingface_hub import Repository, create_repo, get_token, whoami
 from paddle.distributed.fleet.utils.hybrid_parallel_util import (
     fused_allreduce_gradients,
 )
@@ -400,7 +400,7 @@ def parse_args(input_args=None):
 
 def get_full_repo_name(model_id: str, organization: Optional[str] = None, token: Optional[str] = None):
     if token is None:
-        token = HfFolder.get_token()
+        token = get_token()
     if organization is None:
         username = whoami(token)["name"]
         return f"{username}/{model_id}"

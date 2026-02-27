@@ -32,7 +32,7 @@ import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
 import requests
-from huggingface_hub import HfFolder, create_repo, upload_folder, whoami
+from huggingface_hub import create_repo, get_token, upload_folder, whoami
 from paddle.distributed.fleet.utils.hybrid_parallel_util import (
     fused_allreduce_gradients,
 )
@@ -702,7 +702,7 @@ class PromptDataset(Dataset):
 
 def get_full_repo_name(model_id: str, organization: Optional[str] = None, token: Optional[str] = None):
     if token is None:
-        token = HfFolder.get_token()
+        token = get_token()
     if organization is None:
         username = whoami(token)["name"]
         return f"{username}/{model_id}"

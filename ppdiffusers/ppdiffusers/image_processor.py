@@ -18,7 +18,8 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 import paddle
 import PIL.Image
-from PIL import Image
+
+from PIL import Image, ImageFilter
 
 from .configuration_utils import ConfigMixin, register_to_config
 from .utils import CONFIG_NAME, PIL_INTERPOLATION, deprecate
@@ -40,6 +41,26 @@ PipelineDepthInput = Union[
     List[np.ndarray],
     List[paddle.Tensor],
 ]
+
+def is_valid_image(image):
+    return (
+        isinstance(image, PIL.Image.Image) or isinstance(image, (np.ndarray, paddle.Tensor)) and image.ndim in (2, 3)
+    )
+
+
+def is_valid_image_imagelist(images):
+    # check if the image input is one of the supported formats for image and image list:
+    # it can be either one of below 3
+    # (1) a 4d Paddle tensor or numpy array,
+    # (2) a valid image: PIL.Image.Image, 2-d np.ndarray or paddle.Tensor (grayscale image), 3-d np.ndarray or paddle.Tensor
+    # (3) a list of valid image
+    if isinstance(images, (np.ndarray, paddle.Tensor)) and images.ndim == 4:
+        return True
+    elif is_valid_image(images):
+        return True
+    elif isinstance(images, list):
+        return all(is_valid_image(image) for image in images)
+    return False
 
 
 class VaeImageProcessor(ConfigMixin):
@@ -73,6 +94,7 @@ class VaeImageProcessor(ConfigMixin):
         vae_scale_factor: int = 8,
         vae_latent_channels: int = 4,
         resample: str = "lanczos",
+        reducing_gap: int | None = None,
         do_normalize: bool = True,
         do_binarize: bool = False,
         do_convert_rgb: bool = False,
@@ -146,7 +168,7 @@ class VaeImageProcessor(ConfigMixin):
         """
         Denormalize an image array to [0,1].
         """
-        return (images / 2 + 0.5).clip(0, 1)
+        return (images * 0.5 + 0.5).clamp(0, 1)
 
     @staticmethod
     def convert_to_rgb(image: PIL.Image.Image) -> PIL.Image.Image:
@@ -165,6 +187,296 @@ class VaeImageProcessor(ConfigMixin):
         image = image.convert("L")
 
         return image
+
+    @staticmethod
+    def blur(image: PIL.Image.Image, blur_factor: int = 4) -> PIL.Image.Image:
+        """
+        Applies Gaussian blur to an image.
+
+        Args:
+            image (`PIL.Image.Image`):
+                The PIL image to convert to grayscale.
+
+        Returns:
+            `PIL.Image.Image`:
+                The grayscale-converted PIL image.
+        """
+        image = image.filter(ImageFilter.GaussianBlur(blur_factor))
+
+        return image
+
+    @staticmethod
+    def get_crop_region(mask_image: PIL.Image.Image, width: int, height: int, pad=0):
+        """
+        Finds a rectangular region that contains all masked ares in an image, and expands region to match the aspect
+        ratio of the original image; for example, if user drew mask in a 128x32 region, and the dimensions for
+        processing are 512x512, the region will be expanded to 128x128.
+
+        Args:
+            mask_image (PIL.Image.Image): Mask image.
+            width (int): Width of the image to be processed.
+            height (int): Height of the image to be processed.
+            pad (int, optional): Padding to be added to the crop region. Defaults to 0.
+
+        Returns:
+            tuple: (x1, y1, x2, y2) represent a rectangular region that contains all masked ares in an image and
+            matches the original aspect ratio.
+        """
+
+        mask_image = mask_image.convert("L")
+        mask = np.array(mask_image)
+
+        # 1. find a rectangular region that contains all masked ares in an image
+        h, w = mask.shape
+        crop_left = 0
+        for i in range(w):
+            if not (mask[:, i] == 0).all():
+                break
+            crop_left += 1
+
+        crop_right = 0
+        for i in reversed(range(w)):
+            if not (mask[:, i] == 0).all():
+                break
+            crop_right += 1
+
+        crop_top = 0
+        for i in range(h):
+            if not (mask[i] == 0).all():
+                break
+            crop_top += 1
+
+        crop_bottom = 0
+        for i in reversed(range(h)):
+            if not (mask[i] == 0).all():
+                break
+            crop_bottom += 1
+
+        # 2. add padding to the crop region
+        x1, y1, x2, y2 = (
+            int(max(crop_left - pad, 0)),
+            int(max(crop_top - pad, 0)),
+            int(min(w - crop_right + pad, w)),
+            int(min(h - crop_bottom + pad, h)),
+        )
+
+        # 3. expands crop region to match the aspect ratio of the image to be processed
+        ratio_crop_region = (x2 - x1) / (y2 - y1)
+        ratio_processing = width / height
+
+        if ratio_crop_region > ratio_processing:
+            desired_height = (x2 - x1) / ratio_processing
+            desired_height_diff = int(desired_height - (y2 - y1))
+            y1 -= desired_height_diff // 2
+            y2 += desired_height_diff - desired_height_diff // 2
+            if y2 >= mask_image.height:
+                diff = y2 - mask_image.height
+                y2 -= diff
+                y1 -= diff
+            if y1 < 0:
+                y2 -= y1
+                y1 -= y1
+            if y2 >= mask_image.height:
+                y2 = mask_image.height
+        else:
+            desired_width = (y2 - y1) * ratio_processing
+            desired_width_diff = int(desired_width - (x2 - x1))
+            x1 -= desired_width_diff // 2
+            x2 += desired_width_diff - desired_width_diff // 2
+            if x2 >= mask_image.width:
+                diff = x2 - mask_image.width
+                x2 -= diff
+                x1 -= diff
+            if x1 < 0:
+                x2 -= x1
+                x1 -= x1
+            if x2 >= mask_image.width:
+                x2 = mask_image.width
+
+        return x1, y1, x2, y2
+
+    def _resize_and_fill(
+        self,
+        image: PIL.Image.Image,
+        width: int,
+        height: int,
+    ) -> PIL.Image.Image:
+        """
+        Resize the image to fit within the specified width and height, maintaining the aspect ratio, and then center
+        the image within the dimensions, filling empty with data from image.
+
+        Args:
+            image (`PIL.Image.Image`):
+                The image to resize and fill.
+            width (`int`):
+                The width to resize the image to.
+            height (`int`):
+                The height to resize the image to.
+
+        Returns:
+            `PIL.Image.Image`:
+                The resized and filled image.
+        """
+
+        ratio = width / height
+        src_ratio = image.width / image.height
+
+        src_w = width if ratio < src_ratio else image.width * height // image.height
+        src_h = height if ratio >= src_ratio else image.height * width // image.width
+
+        resized = image.resize((src_w, src_h), resample=PIL_INTERPOLATION[self.config.resample])
+        res = Image.new("RGB", (width, height))
+        res.paste(resized, box=(width // 2 - src_w // 2, height // 2 - src_h // 2))
+
+        if ratio < src_ratio:
+            fill_height = height // 2 - src_h // 2
+            if fill_height > 0:
+                res.paste(resized.resize((width, fill_height), box=(0, 0, width, 0)), box=(0, 0))
+                res.paste(
+                    resized.resize((width, fill_height), box=(0, resized.height, width, resized.height)),
+                    box=(0, fill_height + src_h),
+                )
+        elif ratio > src_ratio:
+            fill_width = width // 2 - src_w // 2
+            if fill_width > 0:
+                res.paste(resized.resize((fill_width, height), box=(0, 0, 0, height)), box=(0, 0))
+                res.paste(
+                    resized.resize((fill_width, height), box=(resized.width, 0, resized.width, height)),
+                    box=(fill_width + src_w, 0),
+                )
+
+        return res
+
+    def _resize_and_crop(
+        self,
+        image: PIL.Image.Image,
+        width: int,
+        height: int,
+    ) -> PIL.Image.Image:
+        """
+        Resize the image to fit within the specified width and height, maintaining the aspect ratio, and then center
+        the image within the dimensions, cropping the excess.
+
+        Args:
+            image (`PIL.Image.Image`):
+                The image to resize and crop.
+            width (`int`):
+                The width to resize the image to.
+            height (`int`):
+                The height to resize the image to.
+
+        Returns:
+            `PIL.Image.Image`:
+                The resized and cropped image.
+        """
+        ratio = width / height
+        src_ratio = image.width / image.height
+
+        src_w = width if ratio > src_ratio else image.width * height // image.height
+        src_h = height if ratio <= src_ratio else image.height * width // image.width
+
+        resized = image.resize((src_w, src_h), resample=PIL_INTERPOLATION[self.config.resample])
+        res = Image.new("RGB", (width, height))
+        res.paste(resized, box=(width // 2 - src_w // 2, height // 2 - src_h // 2))
+        return res
+
+    def resize(
+        self,
+        image: Union[PIL.Image.Image, np.ndarray, paddle.Tensor],
+        height: int,
+        width: int,
+        resize_mode: str = "default",  # "default", "fill", "crop"
+    ) -> Union[PIL.Image.Image, np.ndarray, paddle.Tensor]:
+        """
+        Resize image.
+
+        Args:
+            image (`PIL.Image.Image`, `np.ndarray` or `paddle.Tensor`):
+                The image input, can be a PIL image, numpy array or paddle tensor.
+            height (`int`, *optional*, defaults to `None`):
+                The height to resize to.
+            width (`int`, *optional*`, defaults to `None`):
+                The width to resize to.
+            resize_mode (`str`, *optional*, defaults to `default`):
+                The resize mode to use, can be one of `default` or `fill`. If `default`, will resize the image to fit
+                within the specified width and height, and it may not maintaining the original aspect ratio. If `fill`,
+                will resize the image to fit within the specified width and height, maintaining the aspect ratio, and
+                then center the image within the dimensions, filling empty with data from image. If `crop`, will resize
+                the image to fit within the specified width and height, maintaining the aspect ratio, and then center
+                the image within the dimensions, cropping the excess. Note that resize_mode `fill` and `crop` are only
+                supported for PIL image input.
+
+        Returns:
+            `PIL.Image.Image`, `np.ndarray` or `paddle.Tensor`:
+                The resized image.
+        """
+        if resize_mode != "default" and not isinstance(image, PIL.Image.Image):
+            raise ValueError(f"Only PIL image input is supported for resize_mode {resize_mode}")
+        if isinstance(image, PIL.Image.Image):
+            if resize_mode == "default":
+                image = image.resize(
+                    (width, height),
+                    resample=PIL_INTERPOLATION[self.config.resample],
+                    reducing_gap=self.config.reducing_gap,
+                )
+            elif resize_mode == "fill":
+                image = self._resize_and_fill(image, width, height)
+            elif resize_mode == "crop":
+                image = self._resize_and_crop(image, width, height)
+            else:
+                raise ValueError(f"resize_mode {resize_mode} is not supported")
+
+        elif isinstance(image, paddle.Tensor):
+            image = paddle.nn.functional.interpolate(
+                image,
+                size=(height, width),
+            )
+        elif isinstance(image, np.ndarray):
+            image = self.numpy_to_pd(image)
+            image = paddle.nn.functional.interpolate(
+                image,
+                size=(height, width),
+            )
+            image = self.pd_to_numpy(image)
+
+        return image
+
+    def binarize(self, image: PIL.Image.Image) -> PIL.Image.Image:
+        """
+        Create a mask.
+
+        Args:
+            image (`PIL.Image.Image`):
+                The image input, should be a PIL image.
+
+        Returns:
+            `PIL.Image.Image`:
+                The binarized image. Values less than 0.5 are set to 0, values greater than 0.5 are set to 1.
+        """
+        image[image < 0.5] = 0
+        image[image >= 0.5] = 1
+        return image
+
+    def _denormalize_conditionally(
+        self, images: paddle.Tensor, do_denormalize: list[bool] | None = None
+    ) -> paddle.Tensor:
+        """
+        Denormalize a batch of images based on a condition list.
+
+        Args:
+            images (`paddle.Tensor`):
+                The input image tensor.
+            do_denormalize (`Optional[list[bool]`, *optional*, defaults to `None`):
+                A list of booleans indicating whether to denormalize each image in the batch. If `None`, will use the
+                value of `do_normalize` in the `VaeImageProcessor` config.
+        """
+
+        if do_denormalize is None:
+            return self.denormalize(images) if self.config.do_normalize else images
+
+        return paddle.stack(
+            [self.denormalize(images[i]) if do_denormalize[i] else images[i] for i in range(images.shape[0])]
+        )
 
     def get_default_height_width(
         self,
@@ -209,59 +521,6 @@ class VaeImageProcessor(ConfigMixin):
 
         return height, width
 
-    def resize(
-        self,
-        image: Union[PIL.Image.Image, np.ndarray, paddle.Tensor],
-        height: Optional[int] = None,
-        width: Optional[int] = None,
-    ) -> Union[PIL.Image.Image, np.ndarray, paddle.Tensor]:
-        """
-        Resize image.
-
-        Args:
-            image (`PIL.Image.Image`, `np.ndarray` or `paddle.Tensor`):
-                The image input, can be a PIL image, numpy array or paddle tensor.
-            height (`int`, *optional*, defaults to `None`):
-                The height to resize to.
-            width (`int`, *optional*`, defaults to `None`):
-                The width to resize to.
-
-        Returns:
-            `PIL.Image.Image`, `np.ndarray` or `paddle.Tensor`:
-                The resized image.
-        """
-        if isinstance(image, PIL.Image.Image):
-            image = image.resize((width, height), resample=PIL_INTERPOLATION[self.config.resample])
-        elif isinstance(image, paddle.Tensor):
-            image = paddle.nn.functional.interpolate(
-                image,
-                size=(height, width),
-            )
-        elif isinstance(image, np.ndarray):
-            image = self.numpy_to_pd(image)
-            image = paddle.nn.functional.interpolate(
-                image,
-                size=(height, width),
-            )
-            image = self.pd_to_numpy(image)
-        return image
-
-    def binarize(self, image: PIL.Image.Image) -> PIL.Image.Image:
-        """
-        Create a mask.
-
-        Args:
-            image (`PIL.Image.Image`):
-                The image input, should be a PIL image.
-
-        Returns:
-            `PIL.Image.Image`:
-                The binarized image. Values less than 0.5 are set to 0, values greater than 0.5 are set to 1.
-        """
-        image[image < 0.5] = 0
-        image[image >= 0.5] = 1
-        return image
-
     def preprocess(
         self,
         image: Union[paddle.Tensor, PIL.Image.Image, np.ndarray],
@@ -272,6 +531,30 @@ class VaeImageProcessor(ConfigMixin):
     ) -> paddle.Tensor:
         """
         Preprocess the image input. Accepted formats are PIL images, NumPy arrays or Paddle tensors.
+
+        Args:
+            image (`PipelineImageInput`):
+                The image input, accepted formats are PIL images, NumPy arrays, Paddle tensors; Also accept list of
+                supported formats.
+            height (`int`, *optional*):
+                The height in preprocessed image. If `None`, will use the `get_default_height_width()` to get default
+                height.
+            width (`int`, *optional*):
+                The width in preprocessed. If `None`, will use get_default_height_width()` to get the default width.
+            resize_mode (`str`, *optional*, defaults to `default`):
+                The resize mode, can be one of `default` or `fill`. If `default`, will resize the image to fit within
+                the specified width and height, and it may not maintaining the original aspect ratio. If `fill`, will
+                resize the image to fit within the specified width and height, maintaining the aspect ratio, and then
+                center the image within the dimensions, filling empty with data from image. If `crop`, will resize the
+                image to fit within the specified width and height, maintaining the aspect ratio, and then center the
+                image within the dimensions, cropping the excess. Note that resize_mode `fill` and `crop` are only
+                supported for PIL image input.
+            crops_coords (`list[tuple[int, int, int, int]]`, *optional*, defaults to `None`):
+                The crop coordinates for each image in the batch. If `None`, will not crop the image.
+
+        Returns:
+            `paddle.Tensor`:
+                The preprocessed image.
         """
         supported_formats = (PIL.Image.Image, np.ndarray, paddle.Tensor)
 
@@ -293,12 +576,27 @@ class VaeImageProcessor(ConfigMixin):
                 else:
                     image = np.expand_dims(image, axis=-1)
 
-        if isinstance(image, supported_formats):
-            image = [image]
-        elif not (isinstance(image, list) and all(isinstance(i, supported_formats) for i in image)):
-            raise ValueError(
-                f"Input is in incorrect format: {[type(i) for i in image]}. Currently, we only support {', '.join(supported_formats)}"
+        if isinstance(image, list) and isinstance(image[0], np.ndarray) and image[0].ndim == 4:
+            warnings.warn(
+                "Passing `image` as a list of 4d np.ndarray is deprecated."
+                "Please concatenate the list along the batch dimension and pass it as a single 4d np.ndarray",
+                FutureWarning,
             )
+            image = np.concatenate(image, axis=0)
+        if isinstance(image, list) and isinstance(image[0], paddle.Tensor) and image[0].ndim == 4:
+            warnings.warn(
+                "Passing `image` as a list of 4d torch.Tensor is deprecated."
+                "Please concatenate the list along the batch dimension and pass it as a single 4d torch.Tensor",
+                FutureWarning,
+            )
+            image = paddle.cat(image, axis=0)
+
+        if not is_valid_image_imagelist(image):
+            raise ValueError(
+                f"Input is in incorrect format. Currently, we only support {', '.join(str(x) for x in supported_formats)}"
+            )
+        if not isinstance(image, list):
+            image = [image]
 
         if isinstance(image[0], PIL.Image.Image):
             if crops_coords is not None:
@@ -306,13 +604,13 @@ class VaeImageProcessor(ConfigMixin):
             if self.config.do_resize:
                 height, width = self.get_default_height_width(image[0], height, width)
                 # Todo: resize_mode
-                image = [self.resize(i, height, width) for i in image]
+                image = [self.resize(i, height, width, resize_mode=resize_mode) for i in image]
             if self.config.do_convert_rgb:
                 image = [self.convert_to_rgb(i) for i in image]
             elif self.config.do_convert_grayscale:
                 image = [self.convert_to_grayscale(i) for i in image]
             image = self.pil_to_numpy(image)  # to np
-            image = self.numpy_to_pd(image)  # to pt
+            image = self.numpy_to_pd(image)  # to pd
 
         elif isinstance(image[0], np.ndarray):
             image = np.concatenate(image, axis=0) if image[0].ndim == 4 else np.stack(image, axis=0)
@@ -324,14 +622,14 @@ class VaeImageProcessor(ConfigMixin):
                 image = self.resize(image, height, width)
 
         elif isinstance(image[0], paddle.Tensor):
-            image = paddle.concat(image, axis=0) if image[0].ndim == 4 else paddle.stack(image, axis=0)
+            image = paddle.cat(image, axis=0) if image[0].ndim == 4 else paddle.stack(image, axis=0)
 
             if self.config.do_convert_grayscale and image.ndim == 3:
                 image = image.unsqueeze(1)
 
             channel = image.shape[1]
             # don't need any preprocess if the image is latents
-            if channel == 4:
+            if channel == self.config.vae_latent_channels:
                 return image
 
             height, width = self.get_default_height_width(image, height, width)
@@ -397,12 +695,7 @@ class VaeImageProcessor(ConfigMixin):
         if output_type == "latent":
             return image
 
-        if do_denormalize is None:
-            do_denormalize = [self.config.do_normalize] * image.shape[0]
-
-        image = paddle.stack(
-            [self.denormalize(image[i]) if do_denormalize[i] else image[i] for i in range(image.shape[0])]
-        )
+        image = self._denormalize_conditionally(image, do_denormalize)
 
         if output_type == "pd":
             return image
@@ -415,6 +708,52 @@ class VaeImageProcessor(ConfigMixin):
         if output_type == "pil":
             return self.numpy_to_pil(image)
 
+    def apply_overlay(
+        self,
+        mask: PIL.Image.Image,
+        init_image: PIL.Image.Image,
+        image: PIL.Image.Image,
+        crop_coords: tuple[int, int, int, int] | None = None,
+    ) -> PIL.Image.Image:
+        """
+        Applies an overlay of the mask and the inpainted image on the original image.
+
+        Args:
+            mask (`PIL.Image.Image`):
+                The mask image that highlights regions to overlay.
+            init_image (`PIL.Image.Image`):
+                The original image to which the overlay is applied.
+            image (`PIL.Image.Image`):
+                The image to overlay onto the original.
+            crop_coords (`tuple[int, int, int, int]`, *optional*):
+                Coordinates to crop the image. If provided, the image will be cropped accordingly.
+
+        Returns:
+            `PIL.Image.Image`:
+                The final image with the overlay applied.
+        """
+
+        width, height = init_image.width, init_image.height
+
+        init_image_masked = PIL.Image.new("RGBa", (width, height))
+        init_image_masked.paste(init_image.convert("RGBA").convert("RGBa"), mask=ImageOps.invert(mask.convert("L")))
+
+        init_image_masked = init_image_masked.convert("RGBA")
+
+        if crop_coords is not None:
+            x, y, x2, y2 = crop_coords
+            w = x2 - x
+            h = y2 - y
+            base_image = PIL.Image.new("RGBA", (width, height))
+            image = self.resize(image, height=h, width=w, resize_mode="crop")
+            base_image.paste(image, (x, y))
+            image = base_image.convert("RGB")
+
+        image = image.convert("RGBA")
+        image.alpha_composite(init_image_masked)
+        image = image.convert("RGB")
+
+        return image
 
 class VaeImageProcessorLDM3D(VaeImageProcessor):
     """
@@ -474,13 +813,41 @@ class VaeImageProcessorLDM3D(VaeImageProcessor):
     @staticmethod
     def rgblike_to_depthmap(image: Union[np.ndarray, paddle.Tensor]) -> Union[np.ndarray, paddle.Tensor]:
         """
-        Args:
-            image: RGB-like depth image
-
-        Returns: depth map
-
+        Convert an RGB-like depth image to a depth map.
         """
-        return image[:, :, 1] * 2**8 + image[:, :, 2]
+        # 1. Cast the tensor to a larger integer type (e.g., int32)
+        #    to safely perform the multiplication by 256.
+        # 2. Perform the 16-bit combination: High-byte * 256 + Low-byte.
+        # 3. Cast the final result to the desired depth map type (uint16) if needed
+        #    before returning, though leaving it as int32/int64 is often safer
+        #    for return value from a library function.
+
+        if isinstance(image, paddle.Tensor):
+            # Cast to a safe dtype (e.g., int32 or int64) for the calculation
+            original_dtype = image.dtype
+            image_safe = image.to(paddle.int32)
+
+            # Calculate the depth map
+            depth_map = image_safe[:, :, 1] * 256 + image_safe[:, :, 2]
+
+            # You may want to cast the final result to uint16, but casting to a
+            # larger int type (like int32) is sufficient to fix the overflow.
+            # depth_map = depth_map.to(torch.uint16) # Uncomment if uint16 is strictly required
+            return depth_map.to(original_dtype)
+
+        elif isinstance(image, np.ndarray):
+            # NumPy equivalent: Cast to a safe dtype (e.g., np.int32)
+            original_dtype = image.dtype
+            image_safe = image.astype(np.int32)
+
+            # Calculate the depth map
+            depth_map = image_safe[:, :, 1] * 256 + image_safe[:, :, 2]
+
+            # depth_map = depth_map.astype(np.uint16) # Uncomment if uint16 is strictly required
+            return depth_map.astype(original_dtype)
+        else:
+            raise TypeError("Input image must be a torch.Tensor or np.ndarray")
+
 
     def numpy_to_depth(self, images: np.ndarray) -> List[PIL.Image.Image]:
         """
@@ -656,23 +1023,3 @@ class VaeImageProcessorLDM3D(VaeImageProcessor):
 
         return rgb, depth
 
-
-def is_valid_image(image):
-    return (
-        isinstance(image, PIL.Image.Image) or isinstance(image, (np.ndarray, paddle.Tensor)) and image.ndim in (2, 3)
-    )
-
-
-def is_valid_image_imagelist(images):
-    # check if the image input is one of the supported formats for image and image list:
-    # it can be either one of below 3
-    # (1) a 4d pytorch tensor or numpy array,
-    # (2) a valid image: PIL.Image.Image, 2-d np.ndarray or torch.Tensor (grayscale image), 3-d np.ndarray or torch.Tensor
-    # (3) a list of valid image
-    if isinstance(images, (np.ndarray, paddle.Tensor)) and images.ndim == 4:
-        return True
-    elif is_valid_image(images):
-        return True
-    elif isinstance(images, list):
-        return all(is_valid_image(image) for image in images)
-    return False

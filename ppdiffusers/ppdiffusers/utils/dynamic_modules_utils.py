@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Dict, Optional, Union
 from urllib import request
 
-from huggingface_hub import HfFolder, hf_hub_download, model_info
+from huggingface_hub import get_token, hf_hub_download, model_info
 from packaging import version
 
 from . import logging
@@ -328,7 +328,7 @@ def get_cached_module_file(
         if isinstance(use_auth_token, str):
             token = use_auth_token
         elif use_auth_token is True:
-            token = HfFolder.get_token()
+            token = get_token()
         else:
             token = None
 

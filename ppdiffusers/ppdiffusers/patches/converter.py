@@ -17,7 +17,7 @@ from paddlenlp.transformers.conversion_utils import (
     StateDictNameMapping,
     init_name_mappings,
 )
-from paddlenlp.transformers.speecht5.modeling import SpeechT5HifiGan
+# from paddlenlp.transformers.speecht5.modeling import SpeechT5HifiGan
 
 from ppdiffusers.transformers.model_utils import ModuleUtilsMixin
 
