@@ -483,8 +483,7 @@ class FlowMatchEulerDiscreteScheduler(SchedulerMixin, ConfigMixin):
 
         if self.config.stochastic_sampling:
             x0 = sample - current_sigma * model_output
-            # noise = paddle.randn_like(sample)
-            noise = paddle.to_tensor(np.random.randn(*sample.shape).astype(np.float32))
+            noise = paddle.randn_like(sample)
             prev_sample = (1.0 - next_sigma) * x0 + next_sigma * noise
         else:
             prev_sample = sample + dt * model_output
